@@ -195,6 +195,9 @@ type Model struct {
 	// max_context_window, input_modalities and reasoning levels are read
 	// into the fields above too, so the rest of magpie says what it says.
 	Codex json.RawMessage `json:",omitempty"`
+	// CodexInstructionSlug is set by the provider when this catalog entry
+	// comes from an OpenAI or ChatGPT account and can supply relay instructions.
+	CodexInstructionSlug string `json:",omitempty"`
 }
 
 // CodexLevels are the efforts of a Codex catalog entry's
@@ -220,11 +223,12 @@ func CodexEntry(raw json.RawMessage) bool {
 		Levels       json.RawMessage `json:"supported_reasoning_levels"`
 		Shell        json.RawMessage `json:"shell_type"`
 		Instructions json.RawMessage `json:"base_instructions"`
+		Messages     json.RawMessage `json:"model_messages"`
 	}
 	if json.Unmarshal(raw, &e) != nil {
 		return false
 	}
-	return e.Slug != "" && len(e.Levels) > 0 && len(e.Shell) > 0 && len(e.Instructions) > 0
+	return e.Slug != "" && len(e.Levels) > 0 && len(e.Shell) > 0 && (len(e.Instructions) > 0 || len(e.Messages) > 0)
 }
 
 func imageInput(modalities []string) *bool {

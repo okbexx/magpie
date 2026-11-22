@@ -343,7 +343,15 @@ var codexExecutable = func() string {
 // parseCodexModels reads the backend's list, the listed ones in its order.
 func parseCodexModels(b []byte) []catalog.Model {
 	var list struct {
-		Models []struct {
+		Models []json.RawMessage `json:"models"`
+	}
+	if json.Unmarshal(b, &list) != nil {
+		return nil
+	}
+	priority := map[string]int{}
+	var out []catalog.Model
+	for _, raw := range list.Models {
+		var m struct {
 			Slug        string   `json:"slug"`
 			DisplayName string   `json:"display_name"`
 			Visibility  string   `json:"visibility"`
@@ -357,18 +365,18 @@ func parseCodexModels(b []byte) []catalog.Model {
 			Tiers   []struct {
 				ID string `json:"id"`
 			} `json:"service_tiers"`
-		} `json:"models"`
-	}
-	if json.Unmarshal(b, &list) != nil {
-		return nil
-	}
-	sort.SliceStable(list.Models, func(i, j int) bool { return list.Models[i].Priority < list.Models[j].Priority })
-	var out []catalog.Model
-	for _, m := range list.Models {
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			return nil
+		}
 		if m.Slug == "" || m.Visibility == "hide" {
 			continue
 		}
 		mm := catalog.Model{ID: m.Slug, Name: m.DisplayName, Provider: "openai", Context: m.Context}
+		priority[m.Slug] = m.Priority
+		if catalog.CodexEntry(raw) {
+			mm.Codex = raw
+		}
 		if m.Max > m.Context {
 			mm.MaxContext = m.Max
 		}
@@ -384,6 +392,7 @@ func parseCodexModels(b []byte) []catalog.Model {
 		}
 		out = append(out, mm)
 	}
+	sort.SliceStable(out, func(i, j int) bool { return priority[out[i].ID] < priority[out[j].ID] })
 	return out
 }
 
@@ -1034,6 +1043,14 @@ func codexListedIf(shown []Entry, members func(id string) []Member, listed func(
 			continue
 		}
 		m := catalog.Model{ID: e.ID, Name: labels[i], Efforts: CodexEfforts(e), Images: e.Images || seen, Context: e.Context, AgentsV2: e.AgentsV2, Codex: e.Codex, Apart: apart[i]}
+		if len(m.Codex) > 0 && e.Group == "" && e.Provider != nil {
+			switch {
+			case CodexOwn(e), HostOf(e.Provider.Responses) == "api.openai.com":
+				m.CodexInstructionSlug = e.Model
+			case e.Provider.IsRemoteMagpie():
+				m.CodexInstructionSlug, _ = codexcat.OwnSlug(m)
+			}
+		}
 		m.Compact = CompactFor(s, e, find)
 		CodexTiersWith(&m, e, members, ultra)
 		CodexSeals(&m, e, members)

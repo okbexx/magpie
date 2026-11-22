@@ -87,11 +87,11 @@ func TestCodexCatalogHoldsOpenAIModelToCodexWindow(t *testing.T) {
 	check("bundled", map[string][2]any{
 		"mycpa/gpt-6.1-terra":           {float64(922000), float64(500000)},
 		"auto/gpt-6.1-terra-2026-10-01": {float64(922000), float64(500000)},
-		"mycpa/gpt-6.1-sol":             {float64(922000), work},
+		"mycpa/gpt-6.1-sol":             {float64(922000), float64(500000)},
 		"small/gpt-6.1-terra":           {float64(400000), nil},
 		"codex/gpt-6.1-terra":           {float64(500000), nil},
 		"relay/gpt-6.1-terra":           {nil, float64(500000)},
-		"relay/gpt-6.1-sol":             {nil, work},
+		"relay/gpt-6.1-sol":             {nil, float64(500000)},
 		"deepseek/deepseek-v4-pro":      {float64(1000000), work},
 		"anthropic/claude-sonnet-5-5":   {float64(1000000), work},
 		"group/terra":                   {float64(922000), work},
@@ -100,7 +100,7 @@ func TestCodexCatalogHoldsOpenAIModelToCodexWindow(t *testing.T) {
 	v1Home(t, `{"models":[{"slug":"gpt-6.1-terra","display_name":"GPT-6.1-Terra","visibility":"list","context_window":400000,"max_context_window":872000}]}`)
 	check("account's list", map[string][2]any{
 		"mycpa/gpt-6.1-terra": {float64(922000), float64(400000)},
-		"mycpa/gpt-6.1-sol":   {float64(922000), work},
+		"mycpa/gpt-6.1-sol":   {float64(922000), float64(500000)},
 	})
 	// a size the user set is theirs, under the window Codex gives too
 	v1Home(t, `{"models":[]}`)

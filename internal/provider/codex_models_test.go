@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tidwall/gjson"
+
+	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/testenv"
 )
 
@@ -25,7 +28,7 @@ func TestCodexModelsOfTheAccount(t *testing.T) {
 			return
 		}
 		w.Write([]byte(`{"models": [
-			{"slug": "gpt-5.6-luna", "display_name": "GPT-5.6 Luna", "visibility": "list", "priority": 2,
+			{"slug": "gpt-5.6-luna", "display_name": "GPT-5.6 Luna", "visibility": "list", "priority": 2, "shell_type": "shell_command", "model_messages": {"instructions_template":"T"},
 			 "supported_reasoning_levels": [{"effort": "low"}, {"effort": "medium"}]},
 			{"slug": "codex-auto-review", "visibility": "hide", "priority": 1}]}`))
 	}))
@@ -47,6 +50,14 @@ func TestCodexModelsOfTheAccount(t *testing.T) {
 	ms := p.Available()
 	if len(ms) != 1 || ms[0].ID != "gpt-5.6-luna" || len(ms[0].Efforts) != 2 {
 		t.Fatalf("after fetching: %+v", ms)
+	}
+	shown := []Entry{
+		entryFor(p, ms[0], settings.Settings{}),
+		entryFor(Provider{ID: "load"}, ms[0], settings.Settings{}),
+	}
+	listed := CodexCatalog(shown)
+	if len(listed) != 2 || gjson.GetBytes(listed[0].Codex, "model_messages.instructions_template").String() != "T" || listed[0].CodexInstructionSlug != ms[0].ID || listed[1].CodexInstructionSlug != "" {
+		t.Fatalf("account and relay entries: %+v", listed)
 	}
 }
 

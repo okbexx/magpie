@@ -9,11 +9,11 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 )
 
-// codexDir holds the files of openai/codex rust-v0.166.0 that say what Codex
+// codexDir holds the files of openai/codex rust-v0.171.0 that say what Codex
 // sends as a model's instructions, as they are in that release:
 // models-manager/models.json (its bundled catalog) and
 // models-manager/prompt.md (its prompt for a model it doesn't know).
-const codexDir = "testdata/codex-rust-v0.166.0/"
+const codexDir = "testdata/codex-rust-v0.171.0/"
 
 // codexOwn is each bundled model's instructions as Codex reads them from
 // its models.json: model_messages.instructions_template, else the legacy
@@ -157,5 +157,42 @@ func TestOwnEntryInstructions(t *testing.T) {
 	e = ownEntry(map[string]any{"slug": "gpt-6-astra"}, "codex/gpt-6-astra", "x", 1)
 	if e["base_instructions"] != codexOwn(t)["gpt-6-astra"] {
 		t.Error("an entry with none didn't take Codex's own for its model")
+	}
+}
+
+func TestThirdPartyModelsTakeLiveInstructions(t *testing.T) {
+	const slug = "gpt-6.2-astra"
+	const unseen = "gpt-unbundled"
+	msgs := map[string]any{"instructions_template": "live template", "collaboration_modes": map[string]any{"plan": "plan instructions"}}
+	entry := func(slug, description string) json.RawMessage {
+		b, err := json.Marshal(map[string]any{"slug": slug, "description": description, "base_instructions": "live base", "model_messages": msgs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	ms := []catalog.Model{
+		{ID: "load/" + slug}, {ID: "load/" + unseen}, {ID: "group/" + slug}, {ID: "load/unknown"},
+		{ID: "openai/" + slug, CodexInstructionSlug: slug, Codex: entry(slug, "official")},
+		{ID: "office/codex/" + unseen, CodexInstructionSlug: unseen, Codex: entry("codex/"+unseen, "official")},
+		{ID: "relay/unknown", Codex: entry("unknown", "vendor instructions")},
+		{ID: "office/codex/unknown", CodexInstructionSlug: "unknown", Codex: entry("codex/unknown", "unknown via magpie")},
+	}
+	v1Home(t, `{"models":[]}`)
+	got := entryBySlug(t, ms)
+	for _, id := range []string{"load/" + slug, "load/" + unseen} {
+		e := got[id]
+		if e["base_instructions"] != "live base" || !reflect.DeepEqual(e["model_messages"], msgs) || OwnIn(ms)(id) {
+			t.Errorf("%s did not inherit the live instructions as a relay", id)
+		}
+	}
+	for _, id := range []string{"group/" + slug, "load/unknown"} {
+		if e := got[id]; e["base_instructions"] != Prompt || e["model_messages"] != nil {
+			t.Errorf("%s did not keep the unknown-model prompt", id)
+		}
+	}
+	v1Home(t, `{"models":[{"slug":"gpt-6.2-astra","base_instructions":"cached"}]}`)
+	if e := entryBySlug(t, ms)["load/"+slug]; e["base_instructions"] != "cached" || e["model_messages"] != nil {
+		t.Error("live instructions displaced the local cache")
 	}
 }

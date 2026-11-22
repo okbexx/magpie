@@ -9,13 +9,15 @@ import (
 )
 
 // bundledWindows is the context_window of each model in Codex's own
-// bundled catalog (rust-v0.166.0, models-manager/models.json), by slug;
+// bundled catalog (rust-v0.171.0, models-manager/models.json), by slug;
 // TestBundledWindowsAreCodexOwn checks it against that file in testdata.
 // Codex holds most of OpenAI's models to 272K, and GPT-6.1 Terra to 500K
 // (@flower__daisy on X).
 var bundledWindows = map[string]int{
+	"gpt-6.2-sol":              500000,
+	"gpt-6.2-astra":            272000,
 	"gpt-6-astra":              272000,
-	"gpt-6.1-sol":              272000,
+	"gpt-6.1-sol":              500000,
 	"gpt-6.1-terra":            500000,
 	"gpt-6-sol":                272000,
 	"gpt-6-luna":               272000,

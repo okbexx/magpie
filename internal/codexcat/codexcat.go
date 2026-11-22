@@ -27,7 +27,7 @@ import (
 )
 
 // Prompt is what Codex itself sends as the instructions of a model its
-// catalog doesn't list (Apache-2.0, openai/codex rust-v0.166.0,
+// catalog doesn't list (Apache-2.0, openai/codex rust-v0.171.0,
 // models-manager/prompt.md: BASE_INSTRUCTIONS, model_info_from_slug). A
 // model_catalog_json entry has to carry its own (Codex fails the whole
 // catalog on one with neither base_instructions nor
@@ -40,7 +40,7 @@ import (
 var Prompt string
 
 // bundled is the instructions of each model in Codex's own bundled catalog
-// (rust-v0.166.0, models-manager/models.json: model_messages'
+// (rust-v0.171.0, models-manager/models.json: model_messages'
 // instructions_template), by slug, word for word; TestBundledIsCodexOwn
 // checks it against that file in testdata.
 //
@@ -73,31 +73,68 @@ func longestPrefix(id string, slugs func(func(string) bool)) string {
 	return best
 }
 
+// liveEntries indexes the raw entries of OpenAI and ChatGPT accounts, including
+// a remote magpie's codex/<slug>. A relay can supply a Codex-shaped entry for
+// its own model too. Neither that nor an entry magpie generated is a source
+// of instructions for other providers.
+func liveEntries(ms []catalog.Model) map[string]map[string]any {
+	live := map[string]map[string]any{}
+	for _, m := range ms {
+		slug := m.CodexInstructionSlug
+		if slug == "" || strings.Contains(slug, "/") {
+			continue
+		}
+		var e map[string]any
+		if json.Unmarshal(m.Codex, &e) != nil {
+			continue
+		}
+		raw, _ := e["slug"].(string)
+		if raw != slug && raw != "codex/"+slug {
+			continue
+		}
+		desc, _ := e["description"].(string)
+		if catalog.MagpieAdded("", raw, desc) {
+			continue
+		}
+		text, msgs := instructions(e)
+		if text != "" && (live[slug] == nil || (live[slug]["model_messages"] == nil && msgs != nil)) {
+			live[slug] = e
+		}
+	}
+	return live
+}
+
+func instructions(e map[string]any) (string, map[string]any) {
+	msgs, _ := e["model_messages"].(map[string]any)
+	text, _ := e["base_instructions"].(string)
+	if text == "" {
+		text, _ = msgs["instructions_template"].(string)
+	}
+	return text, msgs
+}
+
 // officialFor is the instructions official Codex sends for the model a
 // magpie model serves, and the model_messages they come with, never a
 // word of magpie's. The model is the id's own model (mycpa/gpt-6-astra,
 // openai/gpt-6-astra on a relay, a found auto/gpt-6.1-sol), matched as
 // Codex matches a slug (longestPrefix) against Codex's own entries: those
 // of the ChatGPT account it last listed (models_cache.json, own), which
-// are this Codex version's and carry model_messages too, else its bundled
+// are this Codex version's and carry model_messages too, then the live
+// entries of accounts in this catalog (liveEntries), else its bundled
 // catalog's (bundled, instructions alone, whose model_messages may not be
 // the shape an older Codex reads). A routing group may hand a turn to any
 // model, and a model no entry matches is unknown to Codex: both get
 // Prompt, Codex's for an unknown model.
-func officialFor(own map[string]map[string]any, id string) (string, map[string]any) {
+func officialFor(own, live map[string]map[string]any, id string) (string, map[string]any) {
 	if strings.HasPrefix(id, "group/") {
 		return Prompt, nil
 	}
 	slug := strings.ToLower(id[strings.LastIndex(id, "/")+1:])
-	if s := longestPrefix(slug, maps.Keys(own)); s != "" {
-		e := own[s]
-		msgs, _ := e["model_messages"].(map[string]any)
-		text, _ := e["base_instructions"].(string)
-		if text == "" {
-			text, _ = msgs["instructions_template"].(string)
-		}
-		if text != "" {
-			return text, msgs
+	for _, source := range []map[string]map[string]any{own, live} {
+		if s := longestPrefix(slug, maps.Keys(source)); s != "" {
+			if text, msgs := instructions(source[s]); text != "" {
+				return text, msgs
+			}
 		}
 	}
 	if s := longestPrefix(slug, maps.Keys(bundled())); s != "" {
@@ -111,7 +148,7 @@ func officialFor(own map[string]map[string]any, id string) (string, map[string]a
 // entry for it (matched as Codex matches a slug), else Codex's prompt for
 // an unknown model.
 func Official(slug string) string {
-	text, _ := officialFor(nil, slug)
+	text, _ := officialFor(nil, nil, slug)
 	return text
 }
 
@@ -397,6 +434,7 @@ func Entries(ms []catalog.Model, after int) []any {
 
 func entriesAt(ms []catalog.Model, after int, effort string) []any {
 	own := CacheEntries()
+	live := liveEntries(ms)
 	v1 := V1()
 	work := settings.Load().ForAgent("codex")
 	autoReview := AutoReviewModel()
@@ -420,7 +458,7 @@ func entriesAt(ms []catalog.Model, after int, effort string) []any {
 			entries = append(entries, e)
 			continue
 		}
-		text, msgs := officialFor(own, m.ID)
+		text, msgs := officialFor(own, live, m.ID)
 		e := model{
 			Slug: m.ID, DisplayName: shownName(m), Description: m.Name + " via magpie",
 			Instructions: text, Messages: msgs, Efforts: []level{},
@@ -1417,8 +1455,8 @@ func UsedTag(used []string) string {
 // shape, so a Codex holding the list magpie gave before asks again: v2 put
 // the window in context_window and the threshold in
 // auto_compact_token_limit (10-30); v3 offered Ultra on another vendor's
-// models that reason (ultraHere).
-const catalogFormat = "v3"
+// models that reason (ultraHere); v4 carries live account instructions.
+const catalogFormat = "v4"
 
 // tagMark is where a tag starts in an ETag magpie made.
 const tagMark = "+magpie-"
